@@ -1,0 +1,5 @@
+method,avg_mape_pct,wmape_pct,bias_pct,products_best
+Moving average,101.3,58.2,-11.5,14.0
+Holt Winters,136.4,77.9,21.8,6.0
+Seasonal naive,166.3,87.8,44.4,5.0
+Best per product,77.0,48.2,-7.5,25.0

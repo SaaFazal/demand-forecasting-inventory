@@ -1,0 +1,48 @@
+// Paste into DAX query view, click Run, then "Update model with changes".
+// Needs the "Weeks of Cover" what if parameter to exist first (step 2 in the guide).
+DEFINE
+    // Forecast vs actual chart
+    MEASURE 'forecast_chart'[Actual Units] = SUM ( 'forecast_chart'[actual] )
+    MEASURE 'forecast_chart'[Seasonal Naive Fcst] = SUM ( 'forecast_chart'[Seasonal naive] )
+    MEASURE 'forecast_chart'[Moving Average Fcst] = SUM ( 'forecast_chart'[Moving average] )
+    MEASURE 'forecast_chart'[Holt Winters Fcst] = SUM ( 'forecast_chart'[Holt Winters] )
+    MEASURE 'forecast_chart'[Next 8 Weeks Fcst] = SUM ( 'forecast_chart'[next8_forecast] )
+
+    // Accuracy (best method per product)
+    MEASURE 'accuracy_by_product'[Best MAPE %] =
+        CALCULATE ( AVERAGE ( 'accuracy_by_product'[mape_pct] ), 'accuracy_by_product'[is_best] = 1 ) / 100
+    MEASURE 'accuracy_by_product'[Best WMAPE %] =
+        DIVIDE (
+            CALCULATE ( SUMX ( 'accuracy_by_product', 'accuracy_by_product'[wmape_pct] * 'accuracy_by_product'[actual_total] ), 'accuracy_by_product'[is_best] = 1 ),
+            CALCULATE ( SUM ( 'accuracy_by_product'[actual_total] ), 'accuracy_by_product'[is_best] = 1 )
+        ) / 100
+    MEASURE 'accuracy_by_product'[Best Bias %] =
+        DIVIDE (
+            CALCULATE ( SUM ( 'accuracy_by_product'[forecast_total] ) - SUM ( 'accuracy_by_product'[actual_total] ), 'accuracy_by_product'[is_best] = 1 ),
+            CALCULATE ( SUM ( 'accuracy_by_product'[actual_total] ), 'accuracy_by_product'[is_best] = 1 )
+        )
+    MEASURE 'accuracy_by_product'[MAPE %] = AVERAGE ( 'accuracy_by_product'[mape_pct] ) / 100
+    MEASURE 'accuracy_by_product'[Best Method] =
+        IF ( HASONEVALUE ( 'inventory_plan'[description] ),
+             CALCULATE ( MAX ( 'accuracy_by_product'[method] ), 'accuracy_by_product'[is_best] = 1 ) )
+
+    // Stock risk, driven by the Weeks of Cover slider
+    MEASURE 'inventory_plan'[Assumed On Hand] =
+        SUMX ( 'inventory_plan', 'inventory_plan'[avg_weekly_demand_last8] * [Weeks of Cover Value] )
+    MEASURE 'inventory_plan'[Safety Stock] = SUM ( 'inventory_plan'[safety_stock] )
+    MEASURE 'inventory_plan'[Reorder Point] = SUM ( 'inventory_plan'[reorder_point] )
+    MEASURE 'inventory_plan'[Stock minus ROP] = [Assumed On Hand] - [Reorder Point]
+    MEASURE 'inventory_plan'[Stock Status] =
+        IF ( HASONEVALUE ( 'inventory_plan'[stock_code] ),
+             IF ( [Assumed On Hand] < [Reorder Point], "Reorder now", "OK" ) )
+    MEASURE 'inventory_plan'[Status Colour] =
+        SWITCH ( [Stock Status], "Reorder now", "#C0392B", "OK", "#2E8B57" )
+    MEASURE 'inventory_plan'[Products At Risk] =
+        COUNTROWS ( FILTER ( VALUES ( 'inventory_plan'[stock_code] ), [Assumed On Hand] < [Reorder Point] ) )
+
+EVALUATE
+ROW (
+    "Products at risk (should be 15 at 3 weeks)", [Products At Risk],
+    "Best WMAPE (should be 0.482)", ROUND ( [Best WMAPE %], 3 ),
+    "Best bias (should be -0.075)", ROUND ( [Best Bias %], 3 )
+)
